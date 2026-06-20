@@ -59,7 +59,8 @@ class InsertBuilder {
   single() { this._single = true; return this; }
   async then(resolve, reject) {
     try {
-      const res = await http(`/rest/${this.table}`, { method: "POST", body: this.rows });
+      const query = this._select !== "*" ? { select: this._select } : undefined;
+      const res = await http(`/rest/${this.table}`, { method: "POST", body: this.rows, query });
       let data = res.data || [];
       if (this._single) data = data[0] || null;
       resolve({ data, error: res.error || null });

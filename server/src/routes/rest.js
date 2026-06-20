@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { query } from "../db.js";
+import { query, withTransaction } from "../db.js";
 import { runSelect, buildFilters, buildFilterFragments, quoteIdent } from "../queryBuilder.js";
 import { authorizeWrite, scopeReadFilters, canCallRpc } from "../authorize.js";
 import { mapUserRole } from "../roles.js";
@@ -14,6 +14,15 @@ function safeTable(name) {
 function mapTableRows(table, rows) {
   if (table === "profiles") return rows.map(mapUserRole);
   return rows;
+}
+
+function buildReturningClause(select) {
+  const selectedColumns = (select || "*").trim();
+  if (!selectedColumns || selectedColumns === "*") return "*";
+  return selectedColumns
+    .split(",")
+    .map((column) => quoteIdent(column.trim()))
+    .join(", ");
 }
 
 // GET /rest/:table -> list rows
@@ -51,32 +60,40 @@ router.get("/:table", async (c) => {
 });
 
 // POST /rest/:table -> insert
-router.post("/:table", async (c) => {
+export async function handleInsert(c, { dbQuery = query, tx = withTransaction } = {}) {
   const table = safeTable(c.req.param("table"));
   const user = c.get("user");
+  const url = new URL(c.req.url);
+  const returning = buildReturningClause(url.searchParams.get("select"));
   const body = await c.req.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return c.json({ error: "JSON body required" }, 400);
   }
-  const denied = await authorizeWrite(table, user, { method: "POST", body }, { query });
+  const denied = await authorizeWrite(table, user, { method: "POST", body }, { query: dbQuery });
   if (denied) return c.json({ error: denied }, 403);
   const rows = Array.isArray(body) ? body : [body];
   try {
-    const inserted = [];
-    for (const row of rows) {
-      const cols = Object.keys(row);
-      const placeholders = cols.map((_, i) => `$${i + 1}`).join(",");
-      const colSql = cols.map(quoteIdent).join(",");
-      const values = cols.map((k) => row[k]);
-      const sql = `insert into ${quoteIdent(table)} (${colSql}) values (${placeholders}) returning *`;
-      const r = await query(sql, values);
-      inserted.push(...r.rows);
-    }
+    const inserted = await tx(async (client) => {
+      const insertedRows = [];
+      for (const row of rows) {
+        const cols = Object.keys(row);
+        if (!cols.length) throw new Error("Insert row must include at least one field");
+        const placeholders = cols.map((_, i) => `$${i + 1}`).join(",");
+        const colSql = cols.map(quoteIdent).join(",");
+        const values = cols.map((k) => row[k]);
+        const sql = `insert into ${quoteIdent(table)} (${colSql}) values (${placeholders}) returning ${returning}`;
+        const r = await client.query(sql, values);
+        insertedRows.push(...r.rows);
+      }
+      return insertedRows;
+    });
     return c.json({ data: mapTableRows(table, inserted), error: null });
   } catch (e) {
     return c.json({ data: null, error: { message: e.message } }, 400);
   }
-});
+}
+
+router.post("/:table", (c) => handleInsert(c));
 
 // PATCH /rest/:table -> update with filters
 router.patch("/:table", async (c) => {
@@ -111,7 +128,7 @@ router.patch("/:table", async (c) => {
 });
 
 // DELETE /rest/:table
-router.delete("/:table", async (c) => {
+export async function handleDelete(c, { dbQuery = query } = {}) {
   const table = safeTable(c.req.param("table"));
   const user = c.get("user");
   const url = new URL(c.req.url);
@@ -119,17 +136,19 @@ router.delete("/:table", async (c) => {
   if (!filters.length) {
     return c.json({ error: "Refusing to delete without a filter" }, 400);
   }
-  const denied = await authorizeWrite(table, user, { method: "DELETE", body: null, filters }, { query });
+  const denied = await authorizeWrite(table, user, { method: "DELETE", body: null, filters }, { query: dbQuery });
   if (denied) return c.json({ error: denied }, 403);
   try {
     const filterResult = buildFilterFragments(filters);
-    const sql = `delete from ${quoteIdent(table)} where ${filterResult.clauses.join(" and ")}`;
-    const r = await query(sql, filterResult.params);
-    return c.json({ data: r.rowCount, error: null });
+    const sql = `delete from ${quoteIdent(table)} where ${filterResult.clauses.join(" and ")} returning *`;
+    const r = await dbQuery(sql, filterResult.params);
+    return c.json({ data: mapTableRows(table, r.rows), error: null });
   } catch (e) {
     return c.json({ data: null, error: { message: e.message } }, 400);
   }
-});
+}
+
+router.delete("/:table", (c) => handleDelete(c));
 
 // POST /rest/rpc/:fn -> call a stored function
 router.post("/rpc/:fn", (c) => handleRpc(c));
