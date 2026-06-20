@@ -10,7 +10,7 @@ const LoginForm = () => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
-  const [role, setRole] = useState('counter');
+  const [role, setRole] = useState('user');
   const [status, setStatus] = useState('inactive');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -65,7 +65,7 @@ const LoginForm = () => {
     setPassword('');
     setName('');
     setUsername('');
-    setRole('counter');
+    setRole('user');
     setStatus('inactive');
     setError('');
   };

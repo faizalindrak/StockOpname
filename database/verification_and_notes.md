@@ -4,7 +4,7 @@
 
 ### 1. Verifikasi Objek Database
 
-Jalankan query berikut di SQL Editor Supabase untuk memastikan semua objek terbuat:
+Jalankan query berikut di PostgreSQL client (psql, pgAdmin, atau SQL editor) untuk memastikan semua objek terbuat:
 
 ```sql
 -- Cek semua tabel
@@ -35,37 +35,21 @@ WHERE schemaname = 'public'
 ORDER BY tablename, policyname;
 ```
 
-### 2. Verifikasi RLS Berfungsi
+### 2. Verifikasi Otorisasi API (Hono + JWT)
 
-#### Test sebagai Admin User:
-```sql
--- Login sebagai admin, kemudian test:
-SELECT * FROM profiles LIMIT 5; -- Harus bisa lihat semua
-SELECT * FROM sessions LIMIT 5; -- Harus bisa lihat semua
-INSERT INTO categories (name) VALUES ('Test Category'); -- Harus berhasil
-```
+Akses data sekarang di-enforce oleh server Hono (`server/src/authorize.js`), bukan RLS.
 
-#### Test sebagai Counter User:
-```sql
--- Login sebagai counter, kemudian test:
-SELECT * FROM profiles; -- Hanya profile sendiri
-SELECT * FROM items LIMIT 5; -- Harus bisa lihat semua items
-SELECT * FROM sessions WHERE created_by = auth.uid(); -- Hanya session yang dibuat sendiri
+#### Test sebagai Admin (JWT role `admin`):
+- `GET /rest/profiles` — semua profil
+- `GET /rest/sessions` — semua sesi
+- `POST /rest/categories` — berhasil
+- `POST /rest/rpc/soft_delete_location` — berhasil
 
--- Coba akses session orang lain:
-SELECT * FROM sessions WHERE id = 'some-other-session-id'; -- Harus gagal/ditolak RLS
-```
-
-#### Test Session Assignment:
-```sql
--- Sebagai counter user yang assigned ke session:
-INSERT INTO counts (session_id, item_id, user_id, location_id, counted_qty)
-VALUES ('assigned-session-id', 'item-id', auth.uid(), 'location-id', 10); -- Harus berhasil
-
--- Coba insert ke session yang tidak assigned:
-INSERT INTO counts (session_id, item_id, user_id, location_id, counted_qty)
-VALUES ('unassigned-session-id', 'item-id', auth.uid(), 'location-id', 10); -- Harus gagal
-```
+#### Test sebagai Counter (JWT role `user`):
+- `GET /rest/profiles` — hanya profil sendiri
+- `GET /rest/sessions` — hanya sesi yang di-assign via `session_users`
+- `POST /rest/categories` — ditolak (403)
+- `POST /rest/counts` pada sesi yang tidak di-assign — ditolak (403)
 
 ### 3. Test Realtime Subscription
 

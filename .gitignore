@@ -1,6 +1,10 @@
 node_modules/
+server/node_modules/
 .env
 .env.local
+server/.env
 dist/
 .factory/
 .claude/
+*.log
+.DS_Store

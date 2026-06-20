@@ -29,8 +29,8 @@ CREATE TABLE IF NOT EXISTS public.report_status_raw_mat (
     remarks TEXT,
     qty INTEGER,
     follow_up_status follow_up_status_enum NOT NULL DEFAULT 'open',
-    user_report UUID NOT NULL REFERENCES auth.users(id),
-    user_follow_up UUID REFERENCES auth.users(id),
+    user_report           UUID                   NOT NULL REFERENCES public.profiles(id),
+    user_follow_up        UUID                   REFERENCES public.profiles(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -57,34 +57,5 @@ DROP TRIGGER IF EXISTS update_report_status_raw_mat_updated_at_trigger ON report
 CREATE TRIGGER update_report_status_raw_mat_updated_at_trigger
     BEFORE UPDATE ON report_status_raw_mat
     FOR EACH ROW EXECUTE FUNCTION update_report_status_raw_mat_updated_at();
-
--- Enable RLS
-ALTER TABLE report_status_raw_mat ENABLE ROW LEVEL SECURITY;
-
--- RLS Policies
--- Users can view all reports (for transparency)
-DROP POLICY IF EXISTS "Authenticated users can view report status" ON report_status_raw_mat;
-CREATE POLICY "Authenticated users can view report status" ON report_status_raw_mat
-    FOR SELECT USING (auth.role() = 'authenticated');
-
--- Users can insert their own reports
-DROP POLICY IF EXISTS "Users can insert their own reports" ON report_status_raw_mat;
-CREATE POLICY "Users can insert their own reports" ON report_status_raw_mat
-    FOR INSERT WITH CHECK (auth.uid() = user_report);
-
--- Users can update their own reports
-DROP POLICY IF EXISTS "Users can update their own reports" ON report_status_raw_mat;
-CREATE POLICY "Users can update their own reports" ON report_status_raw_mat
-    FOR UPDATE USING (auth.uid() = user_report)
-    WITH CHECK (auth.uid() = user_report);
-
--- Admins can manage all reports
-DROP POLICY IF EXISTS "Admins can manage all reports" ON report_status_raw_mat;
-CREATE POLICY "Admins can manage all reports" ON report_status_raw_mat
-    FOR ALL USING (
-        auth.jwt() ->> 'role' = 'admin' OR
-        auth.jwt() -> 'user_metadata' ->> 'role' = 'admin' OR
-        auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
-    );
 
 COMMIT;

@@ -9,7 +9,7 @@ BEGIN;
 ALTER TABLE locations
 ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true,
 ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ,
-ADD COLUMN IF NOT EXISTS deactivated_by UUID REFERENCES auth.users(id);
+ADD COLUMN IF NOT EXISTS deactivated_by UUID REFERENCES public.profiles(id);
 
 -- Create index for active locations
 CREATE INDEX IF NOT EXISTS idx_locations_active ON locations(is_active, category_id);
@@ -113,9 +113,6 @@ FROM locations l
 LEFT JOIN categories c ON l.category_id = c.id
 LEFT JOIN counts co ON l.id = co.location_id
 GROUP BY l.id, l.name, l.category_id, l.is_active, l.deactivated_at, l.deactivated_by, c.name, l.created_at, l.updated_at;
-
--- Grant access to the view for authenticated users
-GRANT SELECT ON location_usage TO authenticated;
 
 -- Update counts table foreign key to RESTRICT instead of CASCADE
 -- First drop the existing constraint

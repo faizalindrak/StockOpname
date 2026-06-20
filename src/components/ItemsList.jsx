@@ -300,7 +300,7 @@ const ItemsList = () => {
           sessionId: session.id,
           itemId: selectedItem.id,
           userId: user?.id || null,
-          username: user?.user_metadata?.username || null,
+          username: user?.username || null,
           clientId: clientIdRef.current
         }).catch(() => {});
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
