@@ -1,11 +1,12 @@
 import { Hono } from "hono";
-import { query } from "../db.js";
 import { hashPassword, checkPassword, signToken, authMiddleware } from "../auth.js";
 import { mapUserRole, roleToDb } from "../roles.js";
+import { getAuthSecret, getDb } from "../requestServices.js";
 
 const router = new Hono();
 
 router.post("/signup", async (c) => {
+  const { query } = getDb(c);
   const body = await c.req.json().catch(() => ({}));
   const { email, password, name, username, role = "user", status = "inactive" } = body;
   const dbRole = roleToDb(role);
@@ -23,11 +24,12 @@ router.post("/signup", async (c) => {
     [email, name, username, dbRole, status, password_hash]
   );
   const user = mapUserRole(inserted.rows[0]);
-  const token = signToken({ sub: user.id, email: user.email, role: roleToDb(user.role) });
+  const token = await signToken({ sub: user.id, email: user.email, role: roleToDb(user.role) }, getAuthSecret(c));
   return c.json({ data: { user, session: { access_token: token, user } }, error: null });
 });
 
 router.post("/signin", async (c) => {
+  const { query } = getDb(c);
   const body = await c.req.json().catch(() => ({}));
   const { email, password } = body;
   if (!email || !password) {
@@ -45,7 +47,7 @@ router.post("/signin", async (c) => {
   if (!ok) {
     return c.json({ error: "Invalid email or password" }, 401);
   }
-  const token = signToken({ sub: user.id, email: user.email, role: user.role });
+  const token = await signToken({ sub: user.id, email: user.email, role: user.role }, getAuthSecret(c));
   const { password_hash, ...safeUser } = user;
   const clientUser = mapUserRole(safeUser);
   return c.json({ data: { user: clientUser, session: { access_token: token, user: clientUser } }, error: null });
@@ -55,6 +57,7 @@ router.post("/signout", (c) => c.json({ data: { ok: true }, error: null }));
 
 // Protected /me endpoint
 router.get("/me", authMiddleware, async (c) => {
+  const { query } = getDb(c);
   const u = c.get("user");
   const result = await query(
     "select id, email, name, username, role, status from profiles where id = $1",

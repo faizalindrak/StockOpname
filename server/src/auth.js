@@ -1,23 +1,18 @@
-import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import { query } from "./db.js";
+import { getAuthSecret } from "./requestServices.js";
+import { signWorkerToken, verifyWorkerToken } from "./workerAuth.js";
 
-const SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === "production" ? null : "dev-secret-change-me");
-if (!SECRET) {
+export const DEFAULT_JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === "production" ? null : "dev-secret-change-me");
+if (!DEFAULT_JWT_SECRET) {
   throw new Error("JWT_SECRET must be set in production");
 }
-const EXPIRES = "7d";
 
-export function signToken(payload) {
-  return jwt.sign(payload, SECRET, { expiresIn: EXPIRES });
+export function signToken(payload, secret = DEFAULT_JWT_SECRET) {
+  return signWorkerToken(payload, secret);
 }
 
-export function verifyToken(token) {
-  try {
-    return jwt.verify(token, SECRET);
-  } catch {
-    return null;
-  }
+export async function verifyToken(token, secret = DEFAULT_JWT_SECRET) {
+  return verifyWorkerToken(token, secret);
 }
 
 export async function hashPassword(plain) {
@@ -34,7 +29,7 @@ export async function authMiddleware(c, next) {
   if (!token) {
     return c.json({ error: "Missing bearer token" }, 401);
   }
-  const payload = verifyToken(token);
+  const payload = await verifyToken(token, getAuthSecret(c));
   if (!payload) {
     return c.json({ error: "Invalid or expired token" }, 401);
   }
