@@ -9,11 +9,11 @@ This document explains how to set up automated tasks for the recurring sessions 
 
 ---
 
-## Option 1: Using Supabase pg_cron Extension (Recommended)
+## Option 1: Using PostgreSQL pg_cron Extension (Recommended)
 
 ### Step 1: Enable pg_cron Extension
 
-Run this in Supabase SQL Editor:
+Run this in a PostgreSQL client connected to the application database:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_cron;
@@ -94,7 +94,7 @@ SELECT cron.schedule(...);
 
 ## Option 2: Using External Cron (Server-based)
 
-If you can't use pg_cron, you can set up external cron jobs that call Supabase functions via API.
+If you can't use pg_cron, you can set up external cron jobs that connect to PostgreSQL with `DATABASE_URL` and run the same functions.
 
 ### Step 1: Create API Endpoint
 
@@ -102,12 +102,10 @@ Create a serverless function or API endpoint (e.g., Vercel, Netlify, AWS Lambda)
 
 ```javascript
 // api/cron/recurring-sessions.js
-import { createClient } from '@supabase/supabase-js';
+import pg from 'pg';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY // Use service role for cron jobs
-);
+const { Pool } = pg;
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 export default async function handler(req, res) {
   // Verify cron secret to prevent unauthorized calls
@@ -118,41 +116,29 @@ export default async function handler(req, res) {
 
   try {
     // 1. Activate scheduled sessions
-    const { data: activated, error: activateError } = await supabase
-      .rpc('activate_scheduled_sessions');
-
-    if (activateError) throw activateError;
+    const activated = await pool.query('SELECT * FROM public.activate_scheduled_sessions()');
 
     // 2. Auto-close expired sessions
-    const { data: closed, error: closeError } = await supabase
-      .rpc('auto_close_expired_sessions');
-
-    if (closeError) throw closeError;
+    const closed = await pool.query('SELECT * FROM public.auto_close_expired_sessions()');
 
     // 3. Generate recurring sessions
-    const { data: templates } = await supabase
-      .from('sessions')
-      .select('id')
-      .eq('is_recurring_template', true)
-      .eq('status', 'active');
+    const templates = await pool.query(
+      `SELECT id FROM sessions WHERE is_recurring_template = true AND status = 'active'`
+    );
 
     const generateResults = [];
-    for (const template of templates || []) {
-      const { data: result, error: genError } = await supabase
-        .rpc('generate_recurring_sessions', {
-          p_master_session_id: template.id,
-          p_days_ahead: 30
-        });
-
-      if (!genError) {
-        generateResults.push(result);
-      }
+    for (const template of templates.rows) {
+      const result = await pool.query(
+        'SELECT * FROM public.generate_recurring_sessions($1, $2)',
+        [template.id, 30]
+      );
+      generateResults.push(result.rows);
     }
 
     return res.status(200).json({
       success: true,
-      activated: activated?.length || 0,
-      closed: closed?.length || 0,
+      activated: activated.rowCount,
+      closed: closed.rowCount,
       generated: generateResults
     });
   } catch (error) {
@@ -209,7 +195,7 @@ jobs:
 
 For development or testing, you can manually run the functions:
 
-### In Supabase SQL Editor:
+### In PostgreSQL client:
 
 ```sql
 -- Activate scheduled sessions
@@ -235,7 +221,7 @@ WHERE t.is_recurring_template = true
   AND t.status = 'active';
 ```
 
-### In JavaScript/Frontend (for testing):
+### In JavaScript/Frontend (for testing through the Hono compatibility API):
 
 ```javascript
 // In Admin Dashboard
@@ -368,7 +354,7 @@ ORDER BY m.name;
 
 ## Next Steps
 
-1. Choose your preferred cron method (pg_cron recommended for Supabase)
+1. Choose your preferred cron method (pg_cron recommended when available)
 2. Set up the scheduled jobs
 3. Test with a recurring template
 4. Monitor the logs for the first few days

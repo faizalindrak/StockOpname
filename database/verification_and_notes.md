@@ -66,23 +66,23 @@ VALUES ('test-session-id', 'item-id', auth.uid(), 'location-id', 5);
 
 ## Catatan Keamanan dan Stabilitas
 
-### 1. Model Keamanan RLS
+### 1. Model Keamanan API Hono
 
-**Prinsip RLS yang Diterapkan:**
-- **Admin Bypass**: Admin dapat mengakses semua data tanpa batasan RLS
-- **User Ownership**: Data milik user yang membuat (created_by) atau assigned
+**Prinsip otorisasi yang diterapkan di `server/src/authorize.js`:**
+- **Admin Bypass**: Admin dapat mengakses semua data melalui API
+- **User Ownership**: Data milik user yang membuat (`created_by`) atau assigned
 - **Session-based Access**: Counter hanya bisa akses session yang di-assign
-- **Public Read Data**: Items, locations, categories bisa dibaca semua authenticated users
+- **Public Read Data**: Items, locations, categories bisa dibaca authenticated users
 
 **Dampak terhadap Query:**
-- Query SELECT otomatis difilter berdasarkan policy
-- INSERT/UPDATE memerlukan WITH CHECK untuk memastikan ownership
-- Service role (server-side operations) bypass RLS sepenuhnya
+- Query SELECT difilter oleh Hono sebelum masuk ke PostgreSQL
+- INSERT/UPDATE/DELETE divalidasi oleh Hono sebelum query dieksekusi
+- Tidak ada service-role Supabase; server memakai `DATABASE_URL` dan JWT role claims
 
 ### 2. Pencegahan SQL Injection
 
-- Semua query menggunakan parameterized queries melalui Supabase client
-- Tidak ada dynamic SQL dalam policies
+- Query server memakai parameterized queries melalui `pg`
+- Dynamic identifiers divalidasi/di-quote di `server/src/queryBuilder.js` dan REST routes
 - Foreign key constraints mencegah orphaned records
 
 ### 3. Performa dan Optimisasi
@@ -130,8 +130,8 @@ VALUES ('test-session-id', 'item-id', auth.uid(), 'location-id', 5);
 ### 7. Production Considerations
 
 **Environment Variables:**
-- Pastikan VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY sudah benar
-- Gunakan service role key untuk admin operations jika diperlukan
+- Frontend: pastikan `VITE_API_URL` mengarah ke server Hono
+- Server: pastikan `DATABASE_URL`, `JWT_SECRET`, `PORT`, dan `CORS_ORIGIN` sudah benar
 
 **Monitoring:**
 - Monitor RLS policy performance
@@ -143,7 +143,7 @@ VALUES ('test-session-id', 'item-id', auth.uid(), 'location-id', 5);
 - Test rollback procedure di staging environment
 - Document data migration scripts jika ada data existing
 
-## Instruksi Eksekusi di Supabase Dashboard
+## Instruksi Eksekusi di PostgreSQL Client
 
 ### 1. Persiapan
 - Backup database production (jika ada data existing)
@@ -151,9 +151,9 @@ VALUES ('test-session-id', 'item-id', auth.uid(), 'location-id', 5);
 - Test di staging environment terlebih dahulu
 
 ### 2. Eksekusi Migration UP
-1. Buka Supabase Dashboard → SQL Editor
-2. Copy paste seluruh isi `migration_up.sql`
-3. Klik "Run" dan tunggu sampai selesai
+1. Buka PostgreSQL client (`psql`, pgAdmin, atau SQL editor provider database)
+2. Jalankan seluruh isi `migration_up.sql`
+3. Jalankan `realtime_notify_triggers.sql` jika realtime WebSocket dibutuhkan
 4. Verifikasi dengan queries di bagian verifikasi
 
 ### 3. Testing
@@ -164,7 +164,7 @@ VALUES ('test-session-id', 'item-id', auth.uid(), 'location-id', 5);
 
 ### 4. Rollback (jika diperlukan)
 1. Copy paste seluruh isi `migration_down.sql`
-2. Klik "Run" untuk rollback complete
+2. Jalankan rollback sampai selesai
 3. Restore dari backup jika diperlukan
 
 ### 5. Post-Migration
@@ -179,16 +179,17 @@ VALUES ('test-session-id', 'item-id', auth.uid(), 'location-id', 5);
 1. **Extension not found**: Pastikan pgcrypto dan uuid-ossp tersedia
 2. **Policy conflicts**: Drop existing policies sebelum recreate
 3. **Permission denied**: Pastikan menjalankan sebagai service role atau owner
-4. **RLS blocking queries**: Check policy logic dan auth.uid() values
-5. **Infinite recursion in policy**: Pastikan admin policies menggunakan `auth.is_admin()` function, bukan query ke profiles table
+4. **API returns 403**: Check JWT role, `server/src/authorize.js`, dan session assignment data
+5. **Realtime tidak update**: Pastikan trigger NOTIFY terpasang dan table ada di curated list `server/src/realtime.js`
 
 ### Debug Queries:
 ```sql
--- Check current user context
-SELECT auth.uid(), auth.role();
-
 -- Check profile exists
-SELECT * FROM profiles WHERE id = auth.uid();
+SELECT id, email, role, status FROM profiles WHERE email = 'user@example.com';
 
--- Test policy manually
-SELECT * FROM sessions WHERE created_by = auth.uid() LIMIT 1;
+-- Test session assignment manually
+SELECT s.*
+FROM sessions s
+JOIN session_users su ON su.session_id = s.id
+WHERE su.user_id = 'user-uuid-here'
+LIMIT 1;
