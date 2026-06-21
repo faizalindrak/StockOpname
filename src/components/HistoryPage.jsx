@@ -415,7 +415,7 @@ const HistoryPage = () => {
             </div>
             <div className="flex items-center space-x-4">
               <span className="text-gray-600 hidden sm:block">
-                Welcome, {user?.user_metadata?.name || user?.email}
+                Welcome, {user?.name || user?.email}
               </span>
               <button
                 onClick={() => navigate('/reportstatus')}

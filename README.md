@@ -1,6 +1,6 @@
 # Warehouse Cycle Count App
 
-A warehouse cycle counting application built with React, Vite, Tailwind CSS, and Supabase.
+A warehouse cycle counting application built with React, Vite, Tailwind CSS, and a generic PostgreSQL backend (Hono + WebSocket realtime).
 
 ## Features
 
@@ -17,65 +17,81 @@ A warehouse cycle counting application built with React, Vite, Tailwind CSS, and
 
 ## Tech Stack
 
-| Layer      | Technology                          |
-| ---------- | ----------------------------------- |
-| Frontend   | React 18, React Router 7            |
-| Styling    | Tailwind CSS 3, Lucide Icons        |
-| Backend    | Supabase (Auth, Database, RLS, Realtime) |
-| Build      | Vite 5                              |
-| Testing    | Vitest, React Testing Library       |
-| Deployment | Vercel                              |
+| Layer        | Technology                            |
+| ------------ | ------------------------------------- |
+| Frontend     | React 18, React Router 7              |
+| Styling      | Tailwind CSS 3, Lucide Icons          |
+| Backend API  | Hono on Node.js                       |
+| Database     | PostgreSQL (any provider)             |
+| Realtime     | WebSocket + `LISTEN`/`NOTIFY`         |
+| Auth         | JWT (email + password, bcrypt)        |
+| Build        | Vite 5                                |
+| Testing      | Vitest, React Testing Library         |
+| Deployment   | Vercel (frontend) + any Node host (API) |
 
 ## Getting Started
 
 ### Prerequisites
 
 - Node.js 18+
-- A [Supabase](https://supabase.com) project
+- A PostgreSQL 14+ instance (local, Neon, Supabase, RDS, etc.)
 
 ### Setup
 
-1. Clone the repository:
+1. Clone the repository and install dependencies for both packages:
    ```bash
    git clone https://github.com/faizalindrak/CycleCountAppStark.git
    cd CycleCountAppStark
-   ```
-
-2. Install dependencies:
-   ```bash
    npm install
+   npm --prefix server install
    ```
 
-3. Create a `.env.local` file in the root directory:
+2. Create a `.env` file inside `server/`:
    ```
-   VITE_SUPABASE_URL=https://your-project.supabase.co
-   VITE_SUPABASE_ANON_KEY=your-anon-key
+   DATABASE_URL=postgresql://user:password@host:5432/stockopname
+   JWT_SECRET=replace-with-a-long-random-secret
+   PORT=3000
+   CORS_ORIGIN=http://localhost:5173
    ```
 
-4. Run the database migrations in your Supabase SQL Editor.  
-   Migration files are located in the [`database/`](./database) directory.
+3. Create a `.env.local` file in the project root for the frontend:
+   ```
+   VITE_API_URL=http://localhost:3000
+   ```
 
-5. Start the development server:
+4. Run the SQL migrations against your database (in order):
+   - `database/schema_postgres.sql` (full standalone schema) **or** `database/migration_up.sql`
+   - `database/recurring_sessions_migration.sql` (if you need recurring/scheduled sessions)
+   - `server/db/password_column_migration.sql` (only when upgrading an existing DB without `password_hash`)
+
+5. Start both the API server and Vite dev server in one command:
    ```bash
    npm run dev
    ```
+   The Vite dev server proxies `/auth`, `/rest`, `/rpc`, and `/realtime` to the API on `http://localhost:3000`.
 
 ## Scripts
 
-| Command              | Description                  |
-| -------------------- | ---------------------------- |
-| `npm run dev`        | Start development server     |
-| `npm run build`      | Production build              |
-| `npm run preview`    | Preview production build      |
-| `npm test`           | Run tests                     |
-| `npm run test:ui`    | Run tests with UI             |
-| `npm run test:coverage` | Run tests with coverage    |
+| Command                  | Description                                          |
+| ------------------------ | ---------------------------------------------------- |
+| `npm run dev`            | Start API + Vite dev servers (concurrently)          |
+| `npm run dev:client`     | Vite only                                            |
+| `npm run dev:server`     | API only (uses `node --watch`)                       |
+| `npm run build`          | Production build of the frontend                     |
+| `npm run preview`        | Preview production build                             |
+| `npm test`               | Run tests                                            |
+| `npm run test:ui`        | Run tests with UI                                    |
+| `npm run test:coverage`  | Run tests with coverage                              |
 
 ## Database
 
-All SQL migrations, RLS policies, and database functions live in the [`database/`](./database) directory. Run them in order via the Supabase SQL Editor.
+All SQL migrations, RLS-style policies, and database functions live in the [`database/`](./database) directory.
 
-Key tables: `profiles`, `items`, `categories`, `locations`, `sessions`, `session_items`, `session_users`, `counts`.
+Key tables: `profiles`, `items`, `categories`, `locations`, `sessions`, `session_items`, `session_users`, `counts`, `item_groups`, `item_group_items`, `report_status_raw_mat`.
+
+### Realtime
+
+The Hono server subscribes to PostgreSQL `LISTEN`/`NOTIFY` channels. The trigger function `notify_table_change()` (in `database/realtime_notify_triggers.sql`) emits a notification on every insert/update/delete, and the server forwards those events to subscribed WebSocket clients.
 
 ### Recurring Sessions
 
@@ -103,17 +119,24 @@ src/
   contexts/
     AuthContext.jsx         # Auth state management
   lib/
-    supabase.js            # Supabase client
-    utils.js               # Utility functions
-    deviceDetection.js     # Mobile/desktop detection
+    api.js                  # Hono HTTP + WebSocket client (PostgREST-compatible)
+    supabase.js             # Backwards-compat re-export of ./api.js
+    utils.js                # Utility functions
+    deviceDetection.js      # Mobile/desktop detection
   test/                    # Unit tests
+server/
+  src/
+    index.js               # Hono app entry (HTTP + WebSocket)
+    db.js                  # pg pool + dedicated LISTEN client
+    auth.js                # JWT + bcrypt + auth middleware
+    queryBuilder.js        # PostgREST-style select -> SQL
+    realtime.js            # WebSocket pub/sub + LISTEN/NOTIFY bridge
+    routes/
+      auth.js              # /auth/signup, /auth/signin, /auth/signout, /auth/me
+      rest.js              # /rest/:table, /rest/rpc/:fn
 database/                  # SQL migrations and setup guides
 ```
 
 ## Deployment
 
-The app is configured for Vercel deployment via `vercel.json`. Push to the main branch to trigger a deploy, or run:
-
-```bash
-npm run build
-```
+The frontend is configured for Vercel deployment via `vercel.json`. The API server (`server/`) can be deployed to any Node host (Render, Fly, Railway, a VM, etc.) and pointed at your PostgreSQL instance.

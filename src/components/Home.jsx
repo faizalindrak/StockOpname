@@ -39,7 +39,7 @@ const Home = () => {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Warehouse Cycle Count</h1>
-                <p className="text-gray-600">Welcome back, {user?.user_metadata?.name || user?.email}</p>
+                <p className="text-gray-600">Welcome back, {user?.name || user?.email}</p>
               </div>
             </div>
             <button
@@ -134,7 +134,7 @@ const Home = () => {
                   <div className="ml-4 flex-1">
                     <h3 className="text-lg font-medium text-gray-900">User Information</h3>
                     <p className="text-sm text-gray-500">
-                      Role: <span className="capitalize font-medium">{profile?.role === 'counter' ? 'Counter' : profile?.role || 'user'}</span>
+                      Role: <span className="capitalize font-medium">{profile?.role === 'user' ? 'Counter' : profile?.role || 'user'}</span>
                     </p>
                     <p className="text-sm text-gray-500">
                       Status: <span className={`font-medium ${profile?.status === 'active' ? 'text-green-600' : 'text-yellow-600'}`}>

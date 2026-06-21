@@ -83,18 +83,10 @@ const SessionSelection = () => {
       setLoading(true);
       setError('');
 
-      // Get user's profile to check their role
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, role')
-        .eq('id', user.id)
-        .single();
-
-      if (profileError) throw profileError;
-
       const today = new Date().toISOString().split('T')[0];
 
-      let query = supabase
+      // Non-admin users are scoped to assigned sessions by the API server.
+      const { data, error } = await supabase
         .from('sessions')
         .select(`
           *,
@@ -102,14 +94,8 @@ const SessionSelection = () => {
             user_id
           )
         `)
-        .in('status', ['active']); // Only show active sessions
-
-      // If user is not admin, only show sessions they're assigned to
-      if (profile.role !== 'admin') {
-        query = query.eq('session_users.user_id', user.id);
-      }
-
-      const { data, error } = await query.order('created_date', { ascending: false });
+        .in('status', ['active'])
+        .order('created_date', { ascending: false });
 
       if (error) throw error;
 
@@ -169,7 +155,7 @@ const SessionSelection = () => {
               <h1 className="text-2xl font-bold text-gray-900">Select Session</h1>
               <div className="flex items-center space-x-4">
                 <span className="text-gray-600 hidden sm:block">
-                  Welcome, {user?.user_metadata?.name || user?.email}
+                  Welcome, {user?.name || user?.email}
                 </span>
                 <button
                   onClick={handleGoHome}
@@ -204,7 +190,7 @@ const SessionSelection = () => {
             <h1 className="text-2xl font-bold text-gray-900">Select Session</h1>
             <div className="flex items-center space-x-4">
               <span className="text-gray-600 hidden sm:block">
-                Welcome, {user?.user_metadata?.name || user?.email}
+                Welcome, {user?.name || user?.email}
               </span>
               <button
                 onClick={handleGoHome}
