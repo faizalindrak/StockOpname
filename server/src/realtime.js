@@ -29,11 +29,11 @@ export function attachRealtime(server) {
 
     // First message must be "phx_join" style or a direct join; we use a simple
     // protocol: { type: "auth", token } then { type: "subscribe", channel, filter }.
-    ws.on("message", (raw) => {
+    ws.on("message", async (raw) => {
       let msg;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
       if (msg.type === "auth") {
-        const payload = verifyToken(msg.token);
+        const payload = await verifyToken(msg.token);
         if (payload) {
           ws.user = payload;
           send(ws, { type: "auth_ok" });
