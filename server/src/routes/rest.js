@@ -1,8 +1,9 @@
 import { Hono } from "hono";
-import { query, withTransaction } from "../db.js";
 import { runSelect, buildFilters, buildFilterFragments, quoteIdent } from "../queryBuilder.js";
 import { authorizeWrite, scopeReadFilters, canCallRpc } from "../authorize.js";
 import { mapUserRole } from "../roles.js";
+import { getDb, getRealtime } from "../requestServices.js";
+import { publishRows } from "../realtimePublisher.js";
 
 const router = new Hono();
 
@@ -27,6 +28,7 @@ function buildReturningClause(select) {
 
 // GET /rest/:table -> list rows
 router.get("/:table", async (c) => {
+  const db = getDb(c);
   const table = safeTable(c.req.param("table"));
   const user = c.get("user");
   const url = new URL(c.req.url);
@@ -50,7 +52,7 @@ router.get("/:table", async (c) => {
     const rows = await runSelect({
       table, select, filters: scopedFilters, orFilter: orExpr,
       order: orderColumn ? { column: orderColumn, ascending } : null,
-      range, extraClause, extraParams, db: { query },
+       range, extraClause, extraParams, db,
     });
     const data = mapTableRows(table, rows);
     return c.json({ data, error: null, count: data.length });
@@ -60,7 +62,10 @@ router.get("/:table", async (c) => {
 });
 
 // POST /rest/:table -> insert
-export async function handleInsert(c, { dbQuery = query, tx = withTransaction } = {}) {
+export async function handleInsert(c, { dbQuery, tx } = {}) {
+  const db = dbQuery || tx ? {} : getDb(c);
+  const activeQuery = dbQuery || db.query;
+  const activeTx = tx || db.withTransaction;
   const table = safeTable(c.req.param("table"));
   const user = c.get("user");
   const url = new URL(c.req.url);
@@ -69,11 +74,11 @@ export async function handleInsert(c, { dbQuery = query, tx = withTransaction } 
   if (!body || typeof body !== "object") {
     return c.json({ error: "JSON body required" }, 400);
   }
-  const denied = await authorizeWrite(table, user, { method: "POST", body }, { query: dbQuery });
+  const denied = await authorizeWrite(table, user, { method: "POST", body }, { query: activeQuery });
   if (denied) return c.json({ error: denied }, 403);
   const rows = Array.isArray(body) ? body : [body];
   try {
-    const inserted = await tx(async (client) => {
+    const inserted = await activeTx(async (client) => {
       const insertedRows = [];
       for (const row of rows) {
         const cols = Object.keys(row);
@@ -87,7 +92,9 @@ export async function handleInsert(c, { dbQuery = query, tx = withTransaction } 
       }
       return insertedRows;
     });
-    return c.json({ data: mapTableRows(table, inserted), error: null });
+    const data = mapTableRows(table, inserted);
+    await publishRows(getRealtime(c), { table, eventType: "INSERT", rows: data });
+    return c.json({ data, error: null });
   } catch (e) {
     return c.json({ data: null, error: { message: e.message } }, 400);
   }
@@ -97,6 +104,7 @@ router.post("/:table", (c) => handleInsert(c));
 
 // PATCH /rest/:table -> update with filters
 router.patch("/:table", async (c) => {
+  const db = getDb(c);
   const table = safeTable(c.req.param("table"));
   const user = c.get("user");
   const body = await c.req.json().catch(() => null);
@@ -108,7 +116,7 @@ router.patch("/:table", async (c) => {
   if (!filters.length) {
     return c.json({ error: "Refusing to update without a filter" }, 400);
   }
-  const denied = await authorizeWrite(table, user, { method: "PATCH", body, filters }, { query });
+  const denied = await authorizeWrite(table, user, { method: "PATCH", body, filters }, { query: db.query });
   if (denied) return c.json({ error: denied }, 403);
   const updates = body;
   const updateKeys = Object.keys(updates);
@@ -120,15 +128,19 @@ router.patch("/:table", async (c) => {
     const filterResult = buildFilterFragments(filters, updateKeys.length + 1);
     const params = [...updateKeys.map((k) => updates[k]), ...filterResult.params];
     const sql = `update ${quoteIdent(table)} set ${setFragments.join(", ")} where ${filterResult.clauses.join(" and ")} returning *`;
-    const r = await query(sql, params);
-    return c.json({ data: mapTableRows(table, r.rows), error: null });
+    const r = await db.query(sql, params);
+    const data = mapTableRows(table, r.rows);
+    await publishRows(getRealtime(c), { table, eventType: "UPDATE", rows: data });
+    return c.json({ data, error: null });
   } catch (e) {
     return c.json({ data: null, error: { message: e.message } }, 400);
   }
 });
 
 // DELETE /rest/:table
-export async function handleDelete(c, { dbQuery = query } = {}) {
+export async function handleDelete(c, { dbQuery } = {}) {
+  const db = dbQuery ? {} : getDb(c);
+  const activeQuery = dbQuery || db.query;
   const table = safeTable(c.req.param("table"));
   const user = c.get("user");
   const url = new URL(c.req.url);
@@ -136,13 +148,15 @@ export async function handleDelete(c, { dbQuery = query } = {}) {
   if (!filters.length) {
     return c.json({ error: "Refusing to delete without a filter" }, 400);
   }
-  const denied = await authorizeWrite(table, user, { method: "DELETE", body: null, filters }, { query: dbQuery });
+  const denied = await authorizeWrite(table, user, { method: "DELETE", body: null, filters }, { query: activeQuery });
   if (denied) return c.json({ error: denied }, 403);
   try {
     const filterResult = buildFilterFragments(filters);
     const sql = `delete from ${quoteIdent(table)} where ${filterResult.clauses.join(" and ")} returning *`;
-    const r = await dbQuery(sql, filterResult.params);
-    return c.json({ data: mapTableRows(table, r.rows), error: null });
+    const r = await activeQuery(sql, filterResult.params);
+    const data = mapTableRows(table, r.rows);
+    await publishRows(getRealtime(c), { table, eventType: "DELETE", rows: data });
+    return c.json({ data, error: null });
   } catch (e) {
     return c.json({ data: null, error: { message: e.message } }, 400);
   }
@@ -154,6 +168,7 @@ router.delete("/:table", (c) => handleDelete(c));
 router.post("/rpc/:fn", (c) => handleRpc(c));
 
 export async function handleRpc(c) {
+  const db = getDb(c);
   const user = c.get("user");
   if (!canCallRpc(user)) {
     return c.json({ error: "Only administrators can call RPC functions" }, 403);
@@ -171,7 +186,7 @@ export async function handleRpc(c) {
   const params = keys.map((k) => body[k]);
   try {
     const sql = `select ${quoteIdent(fn)}(${namedPlaceholders}) as result`;
-    const r = await query(sql, params);
+    const r = await db.query(sql, params);
     return c.json({ data: r.rows[0]?.result ?? null, error: null });
   } catch (e) {
     return c.json({ data: null, error: { message: e.message } }, 400);

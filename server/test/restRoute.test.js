@@ -6,6 +6,7 @@ process.env.DATABASE_URL ||= "postgresql://user:password@localhost:5432/test";
 const { handleDelete, handleInsert } = await import("../src/routes/rest.js");
 
 function createContext({ table, user = { sub: "admin-1", role: "admin" }, body = null, url = `http://localhost/rest/${table}` }) {
+  const values = new Map();
   return {
     req: {
       param: (name) => (name === "table" ? table : null),
@@ -13,6 +14,7 @@ function createContext({ table, user = { sub: "admin-1", role: "admin" }, body =
       json: async () => body,
     },
     get: (key) => (key === "user" ? user : undefined),
+    set: (key, value) => values.set(key, value),
     json: (payload, status = 200) => ({ payload, status }),
   };
 }
@@ -64,6 +66,37 @@ describe("REST route helpers", () => {
     assert.equal(response.status, 200);
     assert.match(calls[0][0], /returning "id", "name"$/);
     assert.deepEqual(response.payload.data, [{ id: "category-1", name: "A" }]);
+  });
+
+  it("publishes realtime events after successful inserts", async () => {
+    const published = [];
+    const ctx = createContext({
+      table: "categories",
+      body: { name: "Realtime" },
+    });
+    ctx.get = (key) => {
+      if (key === "user") return { sub: "admin-1", role: "admin" };
+      if (key === "realtime") return { publish: async (message) => published.push(message) };
+      return undefined;
+    };
+    const tx = async (fn) => fn({
+      query: async (_sql, params) => ({ rows: [{ id: "category-1", name: params[0] }] }),
+    });
+
+    const response = await handleInsert(ctx, { tx });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(published, [
+      {
+        table: "categories",
+        payload: {
+          eventType: "INSERT",
+          new: { id: "category-1", name: "Realtime" },
+          old: null,
+          table: "categories",
+        },
+      },
+    ]);
   });
 
   it("rolls back bulk inserts when a later row fails", async () => {
