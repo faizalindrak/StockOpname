@@ -2,15 +2,23 @@ import pg from "pg";
 
 const { Pool } = pg;
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error("DATABASE_URL is not set. Check server/.env");
+let pool = null;
+
+function getConnectionString() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is not set. Check server/.env");
+  }
+  return connectionString;
 }
 
-export const pool = new Pool({ connectionString });
+export function getPool() {
+  if (!pool) pool = new Pool({ connectionString: getConnectionString() });
+  return pool;
+}
 
 export async function withTransaction(fn) {
-  const client = await pool.connect();
+  const client = await getPool().connect();
   try {
     await client.query("BEGIN");
     const result = await fn(client);
@@ -32,11 +40,11 @@ export async function withTransaction(fn) {
 let listenClient = null;
 export async function getListenClient() {
   if (listenClient) return listenClient;
-  listenClient = new pg.Client({ connectionString });
+  listenClient = new pg.Client({ connectionString: getConnectionString() });
   await listenClient.connect();
   return listenClient;
 }
 
 export async function query(text, params) {
-  return pool.query(text, params);
+  return getPool().query(text, params);
 }
