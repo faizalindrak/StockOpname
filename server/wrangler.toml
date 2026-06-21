@@ -1,0 +1,14 @@
+name = "stockopname-api"
+main = "src/worker.js"
+compatibility_date = "2026-06-21"
+
+[vars]
+CORS_ORIGIN = "http://localhost:5173"
+
+[[durable_objects.bindings]]
+name = "REALTIME"
+class_name = "RealtimeDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RealtimeDurableObject"]
