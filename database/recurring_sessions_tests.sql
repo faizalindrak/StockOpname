@@ -1,7 +1,7 @@
 -- =====================================================
 -- RECURRING SESSIONS - DATABASE FUNCTION TESTS
 -- =====================================================
--- Run these tests in Supabase SQL Editor to verify functions work correctly
+-- Run these tests in a PostgreSQL client to verify functions work correctly
 -- Each test should be run independently
 
 -- =====================================================

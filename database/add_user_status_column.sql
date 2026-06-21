@@ -1,6 +1,6 @@
 -- =====================================================
 -- Add user_status column to profiles table
--- Run this in Supabase SQL Editor
+-- Run this in a PostgreSQL client connected to the application database
 -- =====================================================
 
 BEGIN;

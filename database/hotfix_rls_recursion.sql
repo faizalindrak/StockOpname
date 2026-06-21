@@ -1,6 +1,6 @@
 -- =====================================================
 -- HOTFIX: Fix Infinite Recursion in RLS Policies
--- Run this in Supabase SQL Editor to fix existing migration
+-- Run this in a PostgreSQL client to fix existing migration policy recursion
 -- =====================================================
 
 BEGIN;
