@@ -26,7 +26,8 @@ import {
   Code,
   Folder,
   Home,
-  Layers
+  Layers,
+  Activity
 } from 'lucide-react';
 import { supabase, checkCategoryUsage, checkLocationUsage, softDeleteLocation, reactivateLocation } from '../lib/supabase';
 import TagManagement from './TagManagement';
@@ -36,6 +37,7 @@ import ItemGroupsManager from './admin/ItemGroupsManager.jsx';
 import ItemsManager from './admin/ItemsManager.jsx';
 import UsersManager from './admin/UsersManager.jsx';
 import CategoriesManager from './admin/CategoriesManager.jsx';
+import LiveMonitoring from './admin/LiveMonitoring.jsx';
 
 const AdminDashboard = ({ user, signOut }) => {
   const navigate = useNavigate();
@@ -239,6 +241,7 @@ const AdminDashboard = ({ user, signOut }) => {
   }, [cacheDuration, fetchAllData]);
 
   const tabs = [
+    { id: 'live-monitoring', label: 'Live Monitor', icon: Activity, path: '/admin/live-monitoring' },
     { id: 'sessions', label: 'Sessions', icon: ClipboardList, path: '/admin/sessions' },
     { id: 'item-groups', label: 'Item Groups', icon: Layers, path: '/admin/item-groups' },
     { id: 'items', label: 'Items', icon: Package, path: '/admin/items' },
@@ -378,35 +381,46 @@ const AdminDashboard = ({ user, signOut }) => {
           </div>
         )}
 
-        {dataLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="spinner"></div>
-            <span className="ml-2 text-gray-600">Loading dashboard data...</span>
-          </div>
-        ) : (
-          <Routes>
-            <Route path="sessions" element={<SessionsManager sessions={sessions} setSessions={setSessions} onDataChange={fetchAllData} />} />
-            <Route path="item-groups" element={<ItemGroupsManager itemGroups={itemGroups} setItemGroups={setItemGroups} items={items} onDataChange={fetchAllData} />} />
-            <Route path="items" element={<ItemsManager items={items} setItems={setItems} categories={categories} setCategories={setCategories} onDataChange={fetchAllData} />} />
-            <Route path="tags" element={
-              <>
-                <div className="mb-6">
-                  <h3 className="text-xl font-semibold">Tag Management</h3>
-                  <p className="text-gray-600 text-sm mt-1">
-                    Manage tags for all items in the system. Select items to add or remove tags in bulk.
-                  </p>
-                </div>
-                <TagManagement
-                  items={items}
-                  onTagsUpdated={refreshItemsData}
-                />
-              </>
-            } />
-            <Route path="users" element={<UsersManager users={users} setUsers={setUsers} onDataChange={fetchAllData} />} />
-            <Route path="categories" element={<CategoriesManager items={items} categories={categories} setCategories={setCategories} locations={locations} setLocations={setLocations} onDataChange={fetchAllData} />} />
-            {/* Default redirect to sessions */}
-            <Route path="*" element={<Navigate to="sessions" replace />} />
-          </Routes>
+        {/*
+          Live Monitoring is self-contained (fetches its own data via WebSocket
+          realtime) so it renders outside the shared dataLoading gate. All other
+          tabs depend on the cached dashboard data and remain gated.
+        */}
+        <Routes>
+          <Route path="live-monitoring" element={<LiveMonitoring />} />
+        </Routes>
+
+        {activeTab !== 'live-monitoring' && (
+          dataLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="spinner"></div>
+              <span className="ml-2 text-gray-600">Loading dashboard data...</span>
+            </div>
+          ) : (
+            <Routes>
+              <Route path="sessions" element={<SessionsManager sessions={sessions} setSessions={setSessions} onDataChange={fetchAllData} />} />
+              <Route path="item-groups" element={<ItemGroupsManager itemGroups={itemGroups} setItemGroups={setItemGroups} items={items} onDataChange={fetchAllData} />} />
+              <Route path="items" element={<ItemsManager items={items} setItems={setItems} categories={categories} setCategories={setCategories} onDataChange={fetchAllData} />} />
+              <Route path="tags" element={
+                <>
+                  <div className="mb-6">
+                    <h3 className="text-xl font-semibold">Tag Management</h3>
+                    <p className="text-gray-600 text-sm mt-1">
+                      Manage tags for all items in the system. Select items to add or remove tags in bulk.
+                    </p>
+                  </div>
+                  <TagManagement
+                    items={items}
+                    onTagsUpdated={refreshItemsData}
+                  />
+                </>
+              } />
+              <Route path="users" element={<UsersManager users={users} setUsers={setUsers} onDataChange={fetchAllData} />} />
+              <Route path="categories" element={<CategoriesManager items={items} categories={categories} setCategories={setCategories} locations={locations} setLocations={setLocations} onDataChange={fetchAllData} />} />
+              {/* Default redirect to sessions */}
+              <Route path="*" element={<Navigate to="sessions" replace />} />
+            </Routes>
+          )
         )}
       </main>
     </div>
